@@ -67,6 +67,34 @@ export class Brachiosaurus extends XRDinosaur {
   }
 }
 
+export class Dilophosaurus extends XRDinosaur {
+  constructor() {
+    super();
+
+    this.path = 'media/models/dilophosaurus/';
+    this.buttonAtlasOffset = [0.0, 0.75];
+
+    this.shadowNodeNames = [
+      'Dilophosaurus_L_Toe0_037',
+      'Dilophosaurus_R_Toe0_041',
+      'Dilophosaurus_L_Finger0_028',
+      // This critter always tends to hold his hands together, so doubling
+      // up on the finger shadows makes it look too dark. As such we'll only
+      // do one.
+      //'Dilophosaurus_R_Finger0_033',
+      'Dilophosaurus_Tail03_044',
+      'Dilophosaurus_Tongue02_014'
+    ];
+    this.shadowSize = 1.5;
+
+    this.animationSequence = ['Idle', 'Look_Side', 'Idle', 'Look_Back'];
+
+    this.height = 1.9;
+    this.position.set(0, 0, -4);
+    this.rotation.y = Math.PI * -0.2;
+  }
+}
+
 export class Pachycephalosaurus extends XRDinosaur {
   constructor() {
     super();
@@ -127,6 +155,32 @@ export class Utahraptor extends XRDinosaur {
     this.position.set(-0.5, 0, -4);
   }
 }
+
+export class Spinosaurus extends XRDinosaur {
+  constructor() {
+    super();
+
+    this.path = 'media/models/spinosaurus/';
+    this.buttonAtlasOffset = [0.25, 0.75];
+
+    this.shadowNodeNames = [
+      'Spinosaurus_L_Toe0_035',
+      'Spinosaurus_R_Toe0_039',
+      'Spinosaurus_L_Hand_023',
+      'Spinosaurus_R_Hand_029',
+      'Spinosaurus_Tail04_043',
+      'Spinosaurus_Tongue02_010'
+    ];
+    this.shadowSize = 2.5;
+
+    this.animationSequence = ['Idle', 'Look_Side', 'Idle', 'Look_Back'];
+
+    this.height = 5.5;
+    this.position.set(-25, -0.2, -43.3);
+    //this.rotation.y = Math.PI * -0.2;
+  }
+}
+
 
 export class Stegosaurus extends XRDinosaur {
   constructor() {
@@ -200,9 +254,11 @@ export class Tyrannosaurus extends XRDinosaur {
 export let AllDinosaurs = {
   ankylosaurus: new Ankylosaurus(),
   brachiosaurus: new Brachiosaurus(),
+  dilophosaurus: new Dilophosaurus(),
   pachycephalosaurus: new Pachycephalosaurus(),
   parasaurolophus: new Parasaurolophus(),
   raptor: new Utahraptor(),
+  spinosaurus: new Spinosaurus(),
   stegosaurus: new Stegosaurus(),
   triceratops: new Triceratops(),
   trex: new Tyrannosaurus(),

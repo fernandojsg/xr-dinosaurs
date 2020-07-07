@@ -24,6 +24,7 @@ import { XRButtonManager } from './xr-button.js';
 import { XRDinosaurLoader } from './dinosaurs/xr-dinosaur-loader.js';
 import { XRInputCursorManager } from './xr-input-cursor.js';
 import { XRInputRay } from './xr-input-ray.js';
+import { XRLocomotionManager } from './xr-teleport.js';
 import { XRLighting } from './xr-lighting.js';
 import { XRStats } from './xr-stats.js';
 
@@ -35,13 +36,13 @@ import { OrbitControls } from './third-party/three.js/examples/jsm/controls/Orbi
 import { XRControllerModelFactory } from './third-party/three.js/examples/jsm/webxr/XRControllerModelFactory.js';
 
 // VR Button Layout
-const ROW_LENGTH = 4;
+const ROW_LENGTH = 5;
 const BUTTON_SPACING = 0.25;
 const LEFT_BUTTON_X = (BUTTON_SPACING * (ROW_LENGTH - 1) * -0.5);
 
-const HORN_BUTTON_POSITION = new THREE.Vector3(0.65, 0, 0);
-const UP_BUTTON_POSITION = new THREE.Vector3(-0.65, 0, -BUTTON_SPACING * 0.5);
-const DOWN_BUTTON_POSITION = new THREE.Vector3(-0.65, 0, BUTTON_SPACING * 0.5);
+const HORN_BUTTON_POSITION = new THREE.Vector3(0.75, 0, 0);
+const UP_BUTTON_POSITION = new THREE.Vector3(-0.75, 0, -BUTTON_SPACING * 0.5);
+const DOWN_BUTTON_POSITION = new THREE.Vector3(-0.75, 0, BUTTON_SPACING * 0.5);
 
 const IDEAL_RELATIVE_BUTTON_HEIGHT = -0.6;
 const MIN_BUTTON_HEIGHT = 0.3;
@@ -50,7 +51,7 @@ const BUTTON_HEIGHT_DEADZONE = 0.15;
 
 let preloadPromise, appRunning = false;
 let stats, controls;
-let camera, scene, renderer;
+let camera, cameraGroup, scene, renderer;
 let viewerProxy;
 let gltfLoader;
 let xrDinosaurLoader, xrDinosaur;
@@ -73,6 +74,8 @@ let clock = new THREE.Clock();
 
 let listener = new THREE.AudioListener();
 let ambientSounds, hornSound;
+
+let locomotionManager;
 
 let screenshotList;
 let takeScreenshot = false;
@@ -149,17 +152,32 @@ function initControllers() {
     let grip = renderer.xr.getControllerGrip(index);
     let model = xrControllerModelFactory.createControllerModel(grip);
 
+    const rayMesh = inputRay.clone();
+    targetRay.add(rayMesh);
+    targetRay.rayMesh = rayMesh;
+
     targetRay.addEventListener('connected', (event) => {
+      console.log(`Controller connected: ${event.data.profiles}`);
       const xrInputSource = event.data;
+      grip.visible = xrInputSource !== 'gaze';
       targetRay.visible = xrInputSource !== 'gaze';
+      buttonManager.addController(targetRay);
     });
 
-    targetRay.add(inputRay.clone());
+    targetRay.addEventListener('disconnected', (event) => {
+      if (event.data) {
+        console.log(`Controller disconnected: ${event.data.profiles}`);
+      }
+      grip.visible = false;
+      targetRay.visible = false;
+      buttonManager.removeController(targetRay);
+    });
+
     grip.add(model);
 
-    buttonManager.addController(targetRay);
-    environment.platform.add(targetRay);
-    environment.platform.add(grip);
+    locomotionManager.watchController(targetRay);
+    locomotionManager.add(targetRay);
+    locomotionManager.add(grip);
 
     model.setEnvironmentMap(xrLighting.envMap);
 
@@ -181,6 +199,19 @@ function OnAppStateChange(state) {
   if (stateCallback) {
     stateCallback(state);
   }
+}
+
+function isValidDestination(dest) {
+  // Does a really simple bounds check to ensure users can't teleport beyond the inner fence.
+  return (dest.x > -25.5 && dest.x < 26 && dest.z > -35 && dest.z < 16.5);
+}
+
+function onStartSelectDestination(controller) {
+  controller.rayMesh.visible = false;
+}
+
+function onEndSelectDestination(controller) {
+  controller.rayMesh.visible = true;
 }
 
 export function PreloadDinosaurApp(debug = false) {
@@ -205,7 +236,11 @@ export function PreloadDinosaurApp(debug = false) {
   xrControllerModelFactory = new XRControllerModelFactory(gltfLoader);
 
   environment = new PenEnvironment(gltfLoader);
-  scene.add(environment);
+  environment.loaded.then(() => {
+    renderer.compileTarget(scene, environment, () => {
+      scene.add(environment);
+    });
+  });
 
   buttonManager = new XRButtonManager();
   buttonGroup = new THREE.Group();
@@ -215,10 +250,19 @@ export function PreloadDinosaurApp(debug = false) {
   scene.add(cursorManager);
   cursorManager.addCollider(buttonGroup);
 
+  locomotionManager = new XRLocomotionManager({
+    targetTexture: textureLoader.load('media/textures/teleport-target.png'),
+    validDestinationCallback: isValidDestination,
+    startSelectDestinationCallback: onStartSelectDestination,
+    endSelectDestinationCallback: onEndSelectDestination,
+    navigationMeshes: environment.navigationMeshes
+  });
+  environment.platform.add(locomotionManager);
+
   camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.25, 100);
   camera.position.set(0, 5.0, 5.0);
   camera.add(listener);
-  environment.platform.add(camera);
+  locomotionManager.add(camera);
 
   viewerProxy = new THREE.Object3D();
   camera.add(viewerProxy);
@@ -237,6 +281,10 @@ export function PreloadDinosaurApp(debug = false) {
   renderer.outputEncoding = THREE.sRGBEncoding;
   //renderer.physicallyCorrectLights = true;
   renderer.xr.enabled = true;
+
+  // This is useful when debugging, but can cause massive blocking operations
+  // on the main thread so turn it off for "real" work.
+  renderer.debug.checkShaderErrors = debugEnabled;
 
   xrLighting = new XRLighting(renderer);
   scene.add(xrLighting);
@@ -324,7 +372,9 @@ export function PreloadDinosaurApp(debug = false) {
 
     xrLighting.xrSession = null;
 
-    xrDinosaur.visible = true;
+    if (xrDinosaur) {
+      xrDinosaur.visible = true;
+    }
     blobShadowManager.visible = true;
 
     // Stop ambient jungle sounds once the user exits VR.
@@ -508,7 +558,7 @@ function buildButtons() {
   buttonGroup.add(downButton);
 
   // "Glass" pedestal
-  let glassGeometry = new THREE.BoxBufferGeometry(1.6, 0.05, 0.5);
+  let glassGeometry = new THREE.BoxBufferGeometry(1.8, 0.05, 0.5);
   let glassMaterial = new THREE.MeshLambertMaterial({
     color: 0xAACCFF,
     transparent: true,
@@ -539,7 +589,11 @@ function loadModel(key) {
     xrDinosaur.visible = debugSettings.drawDinosaur;
     xrDinosaur.scale.setScalar(dinosaurScale, dinosaurScale, dinosaurScale);
 
-    scene.add(xrDinosaur);
+    // Ensure the dinosaur's shaders are ready to use before we add it to the
+    // scene.
+    renderer.compileTarget(scene, xrDinosaur, () => {
+      scene.add(xrDinosaur);
+    });
 
     controls.target.copy(xrDinosaur.center);
     controls.update();
@@ -587,7 +641,7 @@ function render(time, xrFrame) {
       if (hitTestResults.length > 0) {
         pose = hitTestResults[0].getPose(renderer.xr.getReferenceSpace());
       }
-  
+
       if (pose) {
         xrDinosaur.visible = true;
         blobShadowManager.visible = true;
@@ -622,11 +676,15 @@ function render(time, xrFrame) {
     }*/
 
     buttonManager.update(delta);
+
+    locomotionManager.teleportGuide.options.groundHeight = environment.platformHeight;
   }
 
   if (controllers.length) {
     cursorManager.update([controllers[0].targetRay, controllers[1].targetRay]);
   }
+
+  locomotionManager.update(renderer, camera);
 
   if (takeScreenshot) {
     renderer.setPixelRatio(window.devicePixelRatio * 2);

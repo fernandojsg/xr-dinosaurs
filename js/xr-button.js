@@ -27,8 +27,8 @@ const BUTTON_SEGMENTS = 32;
 const IMAGE_RADIUS = 0.09;
 
 // A button that can be shown both in the DOM and in XR
-
-const textureLoader = new THREE.TextureLoader();
+const useImageBitmap = typeof createImageBitmap !== 'undefined' && /Firefox/.test( navigator.userAgent ) === false;
+const textureLoader = useImageBitmap ? new THREE.ImageBitmapLoader() : new THREE.TextureLoader();
 const raycaster = new THREE.Raycaster();
 const tmpMatrix = new THREE.Matrix4();
 
@@ -38,19 +38,45 @@ export class XRButtonManager {
     this._controllers = [];
     this._frame = 0;
     this.active = true;
+
+    this.selectEventListener = (event) => {
+      this.onSelect(event.target);
+    };
+
+    let buttonGeometry = new THREE.CylinderBufferGeometry(BUTTON_RADIUS, BUTTON_RADIUS, BUTTON_HEIGHT, BUTTON_SEGMENTS);
+    this._buttonMesh = new THREE.Mesh(
+      buttonGeometry,
+      new THREE.MeshLambertMaterial({ color: 0xAA2222 })
+    );
+    this._outlineMesh = new THREE.Mesh(
+      buttonGeometry,
+      new THREE.MeshBasicMaterial({ color: 0xAAFFAA, side: THREE.BackSide })
+    );
+
+    this._imageGeometry = new THREE.CircleBufferGeometry(IMAGE_RADIUS, BUTTON_SEGMENTS);
   }
 
   createButton(options) {
-    let button = new XRButton(options);
+    let button = new XRButton(
+      this._buttonMesh.clone(),
+      this._outlineMesh.clone(),
+      this._imageGeometry,
+      options);
     this._buttons.push(button);
     return button;
   }
 
   addController(controller) {
     this._controllers.push(controller);
-    controller.addEventListener('select', (event) => {
-      this.onSelect(event.target);
-    } )
+    controller.addEventListener('select', this.selectEventListener);
+  }
+
+  removeController(controller) {
+    const index = this._controllers.indexOf(controller);
+    if (index > -1) {
+      this._controllers.splice(index, 1);
+      controller.removeEventListener('select', this.selectEventListener);
+    }
   }
 
   onSelect(controller) {
@@ -95,53 +121,50 @@ export class XRButtonManager {
   }
 }
 
-class XRButton extends THREE.Object3D {
-  constructor(options = {}) {
+class XRButton extends THREE.Group {
+  constructor(buttonMesh, outlineMesh, imageGeometry, options = {}) {
     super();
 
-    let buttonGeometry = new THREE.CylinderBufferGeometry(BUTTON_RADIUS, BUTTON_RADIUS, BUTTON_HEIGHT, BUTTON_SEGMENTS);
-    let buttonMaterial = new THREE.MeshLambertMaterial({
-      color: 0xAA2222,
-      //roughness: 0.8,
-      //metalness: 0.5
-    });
-
-    this._buttonMesh = new THREE.Mesh(buttonGeometry, buttonMaterial);
+    this._buttonMesh = buttonMesh;
     this._buttonMesh.position.y = BUTTON_HEIGHT * 0.5;
     this.add(this._buttonMesh);
 
-    let outlineMaterial = new THREE.MeshBasicMaterial({
-      color: 0xAAFFAA,
-      side: THREE.BackSide,
-    });
-    
-    this._outlineMesh = new THREE.Mesh(buttonGeometry, outlineMaterial);
+    this._outlineMesh = outlineMesh;
     this._outlineMesh.position.copy(this._buttonMesh.position);
     this._outlineMesh.scale.multiplyScalar(1.05);
     this._outlineMesh.visible = false;
     this.add(this._outlineMesh);
-    
+
     if (options.imageUrl) {
       this._imageUrl = options.imageUrl;
-      this._texture = textureLoader.load(options.imageUrl);
 
-      if (options.imageOffset) {
-        this._texture.offset.x = options.imageOffset[0];
-        this._texture.offset.y = 1.0 - (options.imageOffset[1]+0.25);
-        this._texture.repeat.x = 0.25;
-        this._texture.repeat.y = 0.25;
-      }
+      textureLoader.load(options.imageUrl, (image) => {
+        if ( useImageBitmap ) {
+          this._texture = new THREE.CanvasTexture(image);
+        } else {
+          this._texture = image;
+        }
 
-      let imageGeometry = new THREE.CircleBufferGeometry(IMAGE_RADIUS, BUTTON_SEGMENTS);
-      let imageMaterial = new THREE.MeshBasicMaterial({
-        color: 0xFFFFFF,
-        map: this._texture
+        this._texture.flipY = false;
+
+        if (options.imageOffset) {
+          this._texture.offset.x = options.imageOffset[0];
+          this._texture.offset.y = options.imageOffset[1]+0.25;
+          this._texture.repeat.x = 0.25;
+          this._texture.repeat.y = -0.25;
+        }
+
+        this._imageMesh = new THREE.Mesh(
+          imageGeometry,
+          new THREE.MeshBasicMaterial({
+            color: 0xFFFFFF,
+            map: this._texture
+          })
+        );
+        this._imageMesh.rotateX(Math.PI * -0.5);
+        this._imageMesh.position.y = BUTTON_HEIGHT * 1.01;
+        this.add(this._imageMesh);
       });
-
-      this._imageMesh = new THREE.Mesh(imageGeometry, imageMaterial);
-      this._imageMesh.rotateX(Math.PI * -0.5);
-      this._imageMesh.position.y = BUTTON_HEIGHT * 1.01;
-      this.add(this._imageMesh);
     }
 
     this._hovered = false;

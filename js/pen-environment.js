@@ -27,10 +27,12 @@ const PLATFORM_MOVE_INCREMENT = MAX_PLATFORM_HEIGHT / 2;
 export class PenEnvironment extends THREE.Group {
   constructor(gltfLoader) {
     super();
-  
+
     this._platform = new THREE.Group();
     this._platform.position.set(0, 0, 0);
     this.add(this._platform);
+
+    this._navigationMeshes = [];
 
     this._platformTargetHeight = 0;
 
@@ -55,6 +57,10 @@ export class PenEnvironment extends THREE.Group {
           }
           if (child.name == 'Raised_Platform') {
             raisedPlatform = child;
+            this._navigationMeshes.push(child);
+          }
+          if (child.name == 'Ground') {
+            this._navigationMeshes.push(child);
           }
         });
 
@@ -64,7 +70,7 @@ export class PenEnvironment extends THREE.Group {
           raisedPlatform.applyMatrix4(raisedPlatformTransform);
           this._platform.add(raisedPlatform);
         }
-        
+
         this.add(gltf.scene);
         resolve(this);
       });
@@ -77,6 +83,14 @@ export class PenEnvironment extends THREE.Group {
 
   get platform() {
     return this._platform;
+  }
+
+  get navigationMeshes() {
+    return this._navigationMeshes;
+  }
+
+  get platformHeight() {
+    return this._platform.position.y;
   }
 
   raisePlatform() {
